@@ -1,0 +1,31 @@
+# Library Book Management App
+
+This React app allows you to manage a library's book collection using an online database (Firebase Firestore).
+
+## Features
+- List all books
+- Add new books
+- Edit existing books
+- Delete books
+
+## Setup
+1. Install dependencies:
+   ```
+   npm install
+   ```
+2. Set up a Firebase project at https://console.firebase.google.com/
+3. Copy your Firebase config into `src/firebaseConfig.js`.
+4. Start the app:
+   ```
+   npm start
+   ```
+
+## File Overview
+- `src/BookManager.js`: Main UI and logic for managing books
+- `src/firebase.js`: Firebase initialization
+- `src/models.js`: Data model templates
+- `src/App.js`: Renders the book manager UI
+
+---
+
+For any issues, check your Firebase setup and ensure Firestore is enabled.
