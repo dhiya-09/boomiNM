@@ -1,0 +1,381 @@
+back end 
+models
+
+book.js
+import mongoose from 'mongoose';
+
+const bookSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  author: { type: String, required: true },
+  year: { type: String, required: true },
+  status: { type: String, default: 'available' },
+  borrower: { type: String, default: '' }
+});
+
+const Book = mongoose.model('Book', bookSchema);
+
+export default Book;
+
+routes
+books.js
+import express from 'express';
+import Book from '../models/Book.js';
+
+const router = express.Router();
+
+// Get all books
+router.get('/', async (req, res) => {
+  try {
+    const books = await Book.find();
+    res.json(books);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add a new book
+router.post('/', async (req, res) => {
+  try {
+    const { title, author, year, status, borrower } = req.body;
+    const newBook = new Book({ title, author, year, status, borrower });
+    await newBook.save();
+    res.status(201).json(newBook);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Update a book
+router.put('/:id', async (req, res) => {
+  try {
+    const updatedBook = await Book.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    res.json(updatedBook);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Delete a book
+router.delete('/:id', async (req, res) => {
+  try {
+    await Book.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Book deleted' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+export default router;
+
+.env
+MONGO_URI=mongodb://localhost:27017/library
+PORT=5000
+JWT_SECRET=your_jwt_secret_here
+
+index.js
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import booksRouter from './routes/books.js';
+
+// Load environment variables from .env file
+dotenv.config();
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/library', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+
+const db = mongoose.connection;
+db.on('error', console.error.bind(console, 'MongoDB connection error:'));
+db.once('open', () => {
+  console.log('Connected to MongoDB');
+});
+
+
+// Basic route
+app.get('/', (req, res) => {
+  res.send('Library backend is running!');
+});
+
+// Books API route
+app.use('/api/books', booksRouter);
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
+package.json
+{
+  "name": "library-backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {}
+}
+
+front end -my app
+src
+app.js
+
+import './App.css';
+import BookManager from './BookManager';
+import Login from './Login';
+import DatabaseBooks from './DatabaseBooks';
+import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
+import React, { useEffect, useState } from 'react';
+
+function App() {
+  const [user, setUser] = useState(null);
+  const auth = getAuth();
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
+    return () => unsubscribe();
+  }, [auth]);
+
+  const [showDatabaseBooks, setShowDatabaseBooks] = useState(false);
+
+  if (!user) {
+    return <Login onLogin={() => setUser(getAuth().currentUser)} />;
+  }
+
+  return (
+    <div className="App">
+      <button style={{ float: 'right', margin: 10 }} onClick={() => signOut(auth)}>Logout</button>
+      <button style={{ margin: 10 }} onClick={() => setShowDatabaseBooks((v) => !v)}>
+        {showDatabaseBooks ? 'Back to Book Manager' : 'View Database Books'}
+      </button>
+      {showDatabaseBooks ? <DatabaseBooks /> : <BookManager />}
+    </div>
+  );
+}
+
+export default App;
+
+book manager.js
+import React, { useEffect, useState, useCallback } from "react";
+import { db } from "./firebase";
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from "firebase/firestore";
+
+function BookManager() {
+  const [books, setBooks] = useState([]);
+  const [form, setForm] = useState({ title: "", author: "", year: "" });
+  const [editingId, setEditingId] = useState(null);
+
+  const booksCollection = collection(db, "books");
+
+
+  // Fetch books from Firestore
+  const fetchBooks = useCallback(async () => {
+    const data = await getDocs(booksCollection);
+    setBooks(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
+  }, [booksCollection]);
+
+  useEffect(() => {
+    fetchBooks();
+  }, [fetchBooks]);
+
+  // Add or update book
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (editingId) {
+      const bookDoc = doc(db, "books", editingId);
+      await updateDoc(bookDoc, form);
+      setEditingId(null);
+    } else {
+      await addDoc(booksCollection, { ...form, status: "available", borrower: "" });
+    }
+    setForm({ title: "", author: "", year: "" });
+    fetchBooks();
+  };
+
+  // Edit book
+  const handleEdit = (book) => {
+    setForm({ title: book.title, author: book.author, year: book.year });
+    setEditingId(book.id);
+  };
+
+  // Delete book
+  const handleDelete = async (id) => {
+    await deleteDoc(doc(db, "books", id));
+    fetchBooks();
+  };
+
+  return (
+    <div>
+      <h2>Library Book Management</h2>
+      <form onSubmit={handleSubmit}>
+        <input
+          placeholder="Title"
+          value={form.title}
+          onChange={(e) => setForm({ ...form, title: e.target.value })}
+          required
+        />
+        <input
+          placeholder="Author"
+          value={form.author}
+          onChange={(e) => setForm({ ...form, author: e.target.value })}
+          required
+        />
+        <input
+          placeholder="Year"
+          value={form.year}
+          onChange={(e) => setForm({ ...form, year: e.target.value })}
+          required
+        />
+        <button type="submit">{editingId ? "Update" : "Add"} Book</button>
+      </form>
+      <ul>
+        {books.map((book) => (
+          <li key={book.id}>
+            <b>{book.title}</b> by {book.author} ({book.year}) - {book.status}
+            <button onClick={() => handleEdit(book)}>Edit</button>
+            <button onClick={() => handleDelete(book.id)}>Delete</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export default BookManager;
+
+DatabaseBooks.js
+import React, { useEffect, useState } from "react";
+
+function DatabaseBooks() {
+  const [books, setBooks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("http://localhost:5000/api/books")
+      .then((res) => res.json())
+      .then((data) => {
+        setBooks(data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError("Failed to fetch books from backend");
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) return <div>Loading books...</div>;
+  if (error) return <div style={{ color: "red" }}>{error}</div>;
+
+  return (
+    <div>
+      <h2>Books in Database</h2>
+      <ul>
+        {books.map((book) => (
+          <li key={book._id}>
+            <b>{book.title}</b> by {book.author} ({book.year}) - {book.status}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export default DatabaseBooks;
+
+firebase.js
+// firebase.js - Initialize Firebase and export Firestore instance
+import { initializeApp } from "firebase/app";
+import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
+import { firebaseConfig } from "./firebaseConfig";
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+export { db, auth };
+
+firebaseconfig.js
+
+// Firebase configuration for the library book management app
+// Replace the below config with your Firebase project credentials
+export const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_STORAGE_BUCKET",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+index.js
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import App from './App';
+import reportWebVitals from './reportWebVitals';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+// If you want to start measuring performance in your app, pass a function
+// to log results (for example: reportWebVitals(console.log))
+// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
+reportWebVitals();
+
+package.json
+{
+  "name": "my-app",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^13.5.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-scripts": "5.0.1",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
+
+
+
